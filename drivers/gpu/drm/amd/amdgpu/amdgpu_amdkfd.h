@@ -29,6 +29,8 @@
 #include <linux/mmu_context.h>
 #include <kgd_kfd_interface.h>
 
+extern const struct kgd2kfd_calls *kgd2kfd;
+
 struct amdgpu_device;
 
 struct kgd_mem {
@@ -36,6 +38,19 @@ struct kgd_mem {
 	uint64_t gpu_addr;
 	void *cpu_ptr;
 };
+
+/* KFD Memory Eviction */
+struct amdgpu_amdkfd_fence {
+	struct dma_fence base;
+	void *mm;
+	spinlock_t lock;
+	char timeline_name[TASK_COMM_LEN];
+};
+
+struct amdgpu_amdkfd_fence *amdgpu_amdkfd_fence_create(u64 context,
+						       void *mm);
+bool amd_kfd_fence_check_mm(struct dma_fence *f, void *mm);
+struct amdgpu_amdkfd_fence *to_amdgpu_amdkfd_fence(struct dma_fence *f);
 
 int amdgpu_amdkfd_init(void);
 void amdgpu_amdkfd_fini(void);

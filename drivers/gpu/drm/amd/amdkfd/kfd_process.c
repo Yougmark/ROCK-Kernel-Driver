@@ -452,6 +452,7 @@ struct kfd_process_device *kfd_bind_process_to_device(struct kfd_dev *dev,
 	return pdd;
 }
 
+#if defined(CONFIG_AMD_IOMMU_V2_MODULE) || defined(CONFIG_AMD_IOMMU_V2)
 /*
  * Bind processes do the device that have been temporarily unbound
  * (PDD_BOUND_SUSPENDED) in kfd_unbind_processes_from_device.
@@ -562,6 +563,7 @@ void kfd_process_iommu_unbind_callback(struct kfd_dev *dev, unsigned int pasid)
 
 	kfd_unref_process(p);
 }
+#endif /* CONFIG_AMD_IOMMU_V2 */
 
 struct kfd_process_device *kfd_get_first_process_device_data(
 						struct kfd_process *p)

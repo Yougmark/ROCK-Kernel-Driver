@@ -1259,7 +1259,7 @@ struct device_queue_manager *device_queue_manager_init(struct kfd_dev *dev)
 	}
 
 	dqm->dev = dev;
-	switch (sched_policy) {
+	switch (dqm->sched_policy) {
 	case KFD_SCHED_POLICY_HWS:
 	case KFD_SCHED_POLICY_HWS_NO_OVERSUBSCRIPTION:
 		/* initialize dqm for cp scheduling */
@@ -1296,7 +1296,7 @@ struct device_queue_manager *device_queue_manager_init(struct kfd_dev *dev)
 		dqm->ops.process_termination = process_termination_nocpsch;
 		break;
 	default:
-		pr_err("Invalid scheduling policy %d\n", sched_policy);
+		pr_err("Invalid scheduling policy %d\n", dqm->sched_policy);
 		goto out_free;
 	}
 

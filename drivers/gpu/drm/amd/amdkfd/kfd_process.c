@@ -149,6 +149,32 @@ void kfd_unref_process(struct kfd_process *p)
 	kref_put(&p->ref, kfd_process_ref_release);
 }
 
+static void kfd_process_free_outstanding_kfd_bos(struct kfd_process *p)
+{
+	struct kfd_process_device *pdd, *peer_pdd;
+	void *mem;
+	int id;
+
+	list_for_each_entry(pdd, &p->per_device_data, per_device_list) {
+		/*
+		 * Remove all handles from idr and release appropriate
+		 * local memory object
+		 */
+		idr_for_each_entry(&pdd->alloc_idr, mem, id) {
+			list_for_each_entry(peer_pdd, &p->per_device_data,
+					per_device_list) {
+				peer_pdd->dev->kfd2kgd->unmap_memory_to_gpu(
+						peer_pdd->dev->kgd,
+						mem, peer_pdd->vm);
+			}
+
+			pdd->dev->kfd2kgd->free_memory_of_gpu(
+					pdd->dev->kgd, mem);
+			kfd_process_device_remove_obj_handle(pdd, id);
+		}
+	}
+}
+
 static void kfd_process_destroy_pdds(struct kfd_process *p)
 {
 	struct kfd_process_device *pdd, *temp;
@@ -167,6 +193,8 @@ static void kfd_process_destroy_pdds(struct kfd_process *p)
 		if (pdd->qpd.cwsr_kaddr)
 			free_pages((unsigned long)pdd->qpd.cwsr_kaddr,
 				get_order(KFD_CWSR_TBA_TMA_SIZE));
+
+		idr_destroy(&pdd->alloc_idr);
 
 		kfree(pdd);
 	}
@@ -192,6 +220,8 @@ static void kfd_process_wq_release(struct work_struct *work)
 			amd_iommu_unbind_pasid(pdd->dev->pdev, p->pasid);
 	}
 #endif
+
+	kfd_process_free_outstanding_kfd_bos(p);
 
 	kfd_process_destroy_pdds(p);
 	dma_fence_put(p->ef);
@@ -377,6 +407,7 @@ static struct kfd_process *create_process(const struct task_struct *thread,
 	return process;
 
 err_init_cwsr:
+	kfd_process_free_outstanding_kfd_bos(process);
 	kfd_process_destroy_pdds(process);
 err_init_apertures:
 	pqm_uninit(&process->pqm);
@@ -427,6 +458,9 @@ struct kfd_process_device *kfd_create_process_device_data(struct kfd_dev *dev,
 	pdd->already_dequeued = false;
 	list_add(&pdd->per_device_list, &p->per_device_data);
 
+	/* Init idr used for memory handle translation */
+	idr_init(&pdd->alloc_idr);
+
 	/* Create the GPUVM context for this specific device */
 	if (dev->kfd2kgd->create_process_vm(dev->kgd, &pdd->vm,
 					    &p->kgd_process_info, &p->ef)) {
@@ -436,6 +470,7 @@ struct kfd_process_device *kfd_create_process_device_data(struct kfd_dev *dev,
 	return pdd;
 
 err_create_pdd:
+	idr_destroy(&pdd->alloc_idr);
 	list_del(&pdd->per_device_list);
 	kfree(pdd);
 	return NULL;
@@ -613,6 +648,37 @@ struct kfd_process_device *kfd_get_next_process_device_data(
 bool kfd_has_process_device_data(struct kfd_process *p)
 {
 	return !(list_empty(&p->per_device_data));
+}
+
+/* Create specific handle mapped to mem from process local memory idr
+ * Assumes that the process lock is held.
+ */
+int kfd_process_device_create_obj_handle(struct kfd_process_device *pdd,
+					void *mem)
+{
+	return idr_alloc(&pdd->alloc_idr, mem, 0, 0, GFP_KERNEL);
+}
+
+/* Translate specific handle from process local memory idr
+ * Assumes that the process lock is held.
+ */
+void *kfd_process_device_translate_handle(struct kfd_process_device *pdd,
+					int handle)
+{
+	if (handle < 0)
+		return NULL;
+
+	return idr_find(&pdd->alloc_idr, handle);
+}
+
+/* Remove specific handle from process local memory idr
+ * Assumes that the process lock is held.
+ */
+void kfd_process_device_remove_obj_handle(struct kfd_process_device *pdd,
+					int handle)
+{
+	if (handle >= 0)
+		idr_remove(&pdd->alloc_idr, handle);
 }
 
 /* This increments the process->ref counter. */

@@ -151,6 +151,53 @@ err_alloc_mem:
 	return err;
 }
 
+/* kfd_process_reserve_ib_mem - Reserve memory inside the process for IB usage
+ *	The memory reserved is for KFD to submit IB to AMDGPU from kernel.
+ *	If the memory is reserved successfully, ib_kaddr will have
+ *	the CPU/kernel address. Check ib_kaddr before accessing the
+ *	memory.
+ */
+static int kfd_process_reserve_ib_mem(struct kfd_process *p)
+{
+	int ret = 0;
+	struct kfd_process_device *temp, *pdd = NULL;
+	struct kfd_dev *kdev = NULL;
+	struct qcm_process_device *qpd = NULL;
+	void *kaddr;
+	uint32_t flags = ALLOC_MEM_FLAGS_GTT |
+			 ALLOC_MEM_FLAGS_NO_SUBSTITUTE |
+			 ALLOC_MEM_FLAGS_WRITABLE |
+			 ALLOC_MEM_FLAGS_EXECUTABLE;
+
+	list_for_each_entry_safe(pdd, temp, &p->per_device_data,
+				per_device_list) {
+		kdev = pdd->dev;
+		qpd = &pdd->qpd;
+		if (qpd->ib_kaddr)
+			continue;
+
+		if (qpd->ib_base) { /* is dGPU */
+			ret = kfd_process_alloc_gpuvm(p, kdev,
+				qpd->ib_base, PAGE_SIZE,
+				&kaddr, pdd, flags);
+			if (!ret)
+				qpd->ib_kaddr = kaddr;
+			else
+				/* In case of error, the kfd_bos for some pdds
+				 * which are already allocated successfully
+				 * will be freed in upper level function
+				 * i.e. create_process().
+				 */
+				return ret;
+		} else {
+			/* FIXME: Support APU */
+			continue;
+		}
+	}
+
+	return 0;
+}
+
 struct kfd_process *kfd_create_process(struct file *filep)
 {
 	struct kfd_process *process;
@@ -499,6 +546,9 @@ static struct kfd_process *create_process(const struct task_struct *thread,
 	INIT_DELAYED_WORK(&process->restore_work, restore_process_worker);
 	process->last_restore_timestamp = get_jiffies_64();
 
+	err = kfd_process_reserve_ib_mem(process);
+	if (err)
+		goto err_reserve_ib_mem;
 	err = kfd_process_init_cwsr(process, filep);
 	if (err)
 		goto err_init_cwsr;
@@ -506,6 +556,7 @@ static struct kfd_process *create_process(const struct task_struct *thread,
 	return process;
 
 err_init_cwsr:
+err_reserve_ib_mem:
 	kfd_process_free_outstanding_kfd_bos(process);
 	kfd_process_destroy_pdds(process);
 err_init_apertures:

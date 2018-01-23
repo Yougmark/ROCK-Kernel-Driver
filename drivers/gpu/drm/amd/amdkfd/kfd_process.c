@@ -73,6 +73,84 @@ void kfd_process_destroy_wq(void)
 	}
 }
 
+static void kfd_process_free_gpuvm(struct kgd_mem *mem,
+			struct kfd_process_device *pdd)
+{
+	struct kfd_dev *dev = pdd->dev;
+
+	dev->kfd2kgd->unmap_memory_to_gpu(dev->kgd, mem, pdd->vm);
+	pdd->dev->kfd2kgd->free_memory_of_gpu(pdd->dev->kgd, mem);
+}
+
+/* kfd_process_alloc_gpuvm - Allocate GPU VM for the KFD process
+ *	This function should be only called right after the process
+ *	is created and when kfd_processes_mutex is still being held
+ *	to avoid concurrency. Because of that exclusiveness, we do
+ *	not need to take p->mutex.
+ */
+static int kfd_process_alloc_gpuvm(struct kfd_process *p,
+		struct kfd_dev *kdev, uint64_t gpu_va, uint32_t size,
+		void **kptr, struct kfd_process_device *pdd, uint32_t flags)
+{
+	int err;
+	void *mem = NULL;
+	int handle;
+
+	err = kdev->kfd2kgd->alloc_memory_of_gpu(kdev->kgd, gpu_va, size,
+				pdd->vm,
+				(struct kgd_mem **)&mem, NULL, flags);
+	if (err)
+		goto err_alloc_mem;
+
+	err = kdev->kfd2kgd->map_memory_to_gpu(
+				kdev->kgd, (struct kgd_mem *)mem, pdd->vm);
+	if (err)
+		goto err_map_mem;
+
+	err = kdev->kfd2kgd->sync_memory(kdev->kgd, (struct kgd_mem *) mem,
+				true);
+	if (err) {
+		pr_debug("Sync memory failed, wait interrupted by user signal\n");
+		goto sync_memory_failed;
+	}
+
+	/* Create an obj handle so kfd_process_device_remove_obj_handle
+	 * will take care of the bo removal when the process finishes.
+	 * We do not need to take p->mutex, because the process is just
+	 * created and the ioctls have not had the chance to run.
+	 */
+	handle = kfd_process_device_create_obj_handle(pdd, mem);
+
+	if (handle < 0) {
+		err = handle;
+		goto free_gpuvm;
+	}
+
+	if (kptr) {
+		err = kdev->kfd2kgd->map_gtt_bo_to_kernel(kdev->kgd,
+				(struct kgd_mem *)mem, kptr, NULL);
+		if (err) {
+			pr_debug("Map GTT BO to kernel failed\n");
+			goto free_obj_handle;
+		}
+	}
+
+	return err;
+
+free_obj_handle:
+	kfd_process_device_remove_obj_handle(pdd, handle);
+free_gpuvm:
+sync_memory_failed:
+	kfd_process_free_gpuvm(mem, pdd);
+	return err;
+
+err_map_mem:
+	kdev->kfd2kgd->free_memory_of_gpu(kdev->kgd, mem);
+err_alloc_mem:
+	*kptr = NULL;
+	return err;
+}
+
 struct kfd_process *kfd_create_process(struct file *filep)
 {
 	struct kfd_process *process;
@@ -190,7 +268,7 @@ static void kfd_process_destroy_pdds(struct kfd_process *p)
 
 		list_del(&pdd->per_device_list);
 
-		if (pdd->qpd.cwsr_kaddr)
+		if (pdd->qpd.cwsr_kaddr && !pdd->qpd.cwsr_base)
 			free_pages((unsigned long)pdd->qpd.cwsr_kaddr,
 				get_order(KFD_CWSR_TBA_TMA_SIZE));
 
@@ -316,24 +394,45 @@ static int kfd_process_init_cwsr(struct kfd_process *p, struct file *filep)
 	struct kfd_process_device *pdd = NULL;
 	struct kfd_dev *dev = NULL;
 	struct qcm_process_device *qpd = NULL;
+	void *kaddr;
+	const uint32_t flags = ALLOC_MEM_FLAGS_GTT |
+		ALLOC_MEM_FLAGS_NO_SUBSTITUTE | ALLOC_MEM_FLAGS_EXECUTABLE;
+	int ret;
 
 	list_for_each_entry(pdd, &p->per_device_data, per_device_list) {
 		dev = pdd->dev;
 		qpd = &pdd->qpd;
 		if (!dev->cwsr_enabled || qpd->cwsr_kaddr)
 			continue;
-		offset = (dev->id | KFD_MMAP_RESERVED_MEM_MASK) << PAGE_SHIFT;
-		qpd->tba_addr = (int64_t)vm_mmap(filep, 0,
-			KFD_CWSR_TBA_TMA_SIZE, PROT_READ | PROT_EXEC,
-			MAP_SHARED, offset);
+		if (qpd->cwsr_base) {
+			/* cwsr_base is only set for dGPU */
+			ret = kfd_process_alloc_gpuvm(p, dev, qpd->cwsr_base,
+				KFD_CWSR_TBA_TMA_SIZE, &kaddr, pdd, flags);
+			if (!ret) {
+				qpd->cwsr_kaddr = kaddr;
+				qpd->tba_addr = qpd->cwsr_base;
+			} else
+				/* In case of error, the kfd_bos for some pdds
+				 * which are already allocated successfully
+				 * will be freed in upper level function
+				 * i.e. create_process().
+				 */
+				return ret;
+		} else {
+			offset = (dev->id |
+				KFD_MMAP_RESERVED_MEM_MASK) << PAGE_SHIFT;
+			qpd->tba_addr = (int64_t)vm_mmap(filep, 0,
+				KFD_CWSR_TBA_TMA_SIZE, PROT_READ | PROT_EXEC,
+				MAP_SHARED, offset);
 
-		if (IS_ERR_VALUE(qpd->tba_addr)) {
-			int err = qpd->tba_addr;
-
-			pr_err("Failure to set tba address. error %d.\n", err);
-			qpd->tba_addr = 0;
-			qpd->cwsr_kaddr = NULL;
-			return err;
+			if (IS_ERR_VALUE(qpd->tba_addr)) {
+				ret = qpd->tba_addr;
+				pr_err("Failure to set tba address. error %d.\n",
+				       ret);
+				qpd->tba_addr = 0;
+				qpd->cwsr_kaddr = NULL;
+				return ret;
+			}
 		}
 
 		memcpy(qpd->cwsr_kaddr, dev->cwsr_isa, dev->cwsr_isa_size);

@@ -758,17 +758,24 @@ int amd_iommu_init_device(struct pci_dev *pdev, int pasids)
 
 	might_sleep();
 
-	if (!amd_iommu_v2_supported())
+	printk(KERN_DEBUG "testing if amd iommuv2 is supported\n");
+	printk("testing if amd iommuv2 is supported\n");
+	if (!amd_iommu_v2_supported()) {
+		printk(KERN_DEBUG "amd iommuv2 not supported\n");
+		printk("amd iommuv2 not supported\n");
 		return -ENODEV;
+	}
 
 	if (pasids <= 0 || pasids > (PASID_MASK + 1))
 		return -EINVAL;
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	devid = device_id(pdev);
 
 	dev_state = kzalloc(sizeof(*dev_state), GFP_KERNEL);
 	if (dev_state == NULL)
 		return -ENOMEM;
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 
 	spin_lock_init(&dev_state->lock);
 	init_waitqueue_head(&dev_state->wq);
@@ -782,43 +789,53 @@ int amd_iommu_init_device(struct pci_dev *pdev, int pasids)
 	atomic_set(&dev_state->count, 1);
 	dev_state->max_pasids = pasids;
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	ret = -ENOMEM;
 	dev_state->states = (void *)get_zeroed_page(GFP_KERNEL);
 	if (dev_state->states == NULL)
 		goto out_free_dev_state;
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	dev_state->domain = iommu_domain_alloc(&pci_bus_type);
 	if (dev_state->domain == NULL)
 		goto out_free_states;
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	amd_iommu_domain_direct_map(dev_state->domain);
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	ret = amd_iommu_domain_enable_v2(dev_state->domain, pasids);
 	if (ret)
 		goto out_free_domain;
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	group = iommu_group_get(&pdev->dev);
 	if (!group) {
 		ret = -EINVAL;
 		goto out_free_domain;
 	}
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	ret = iommu_attach_group(dev_state->domain, group);
 	if (ret != 0)
 		goto out_drop_group;
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	iommu_group_put(group);
 
 	spin_lock_irqsave(&state_lock, flags);
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	if (__get_device_state(devid) != NULL) {
 		spin_unlock_irqrestore(&state_lock, flags);
 		ret = -EBUSY;
 		goto out_free_domain;
 	}
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	list_add_tail(&dev_state->list, &state_list);
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	spin_unlock_irqrestore(&state_lock, flags);
 
 	return 0;

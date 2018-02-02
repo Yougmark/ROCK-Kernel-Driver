@@ -692,6 +692,7 @@ static int __iommu_group_for_each_dev(struct iommu_group *group, void *data,
 	int ret = 0;
 
 	list_for_each_entry(device, &group->devices, list) {
+		printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 		ret = fn(device->dev, data);
 		if (ret)
 			break;
@@ -1287,6 +1288,7 @@ static int __iommu_attach_device(struct iommu_domain *domain,
 		return -ENODEV;
 
 	ret = domain->ops->attach_dev(domain, dev);
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 	if (!ret)
 		trace_attach_device_to_domain(dev);
 	return ret;
@@ -1394,11 +1396,13 @@ static int __iommu_attach_group(struct iommu_domain *domain,
 {
 	int ret;
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	if (group->default_domain && group->domain != group->default_domain)
 		return -EBUSY;
 
 	ret = __iommu_group_for_each_dev(group, domain,
 					 iommu_group_do_attach_device);
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 	if (ret == 0)
 		group->domain = domain;
 
@@ -1409,10 +1413,12 @@ int iommu_attach_group(struct iommu_domain *domain, struct iommu_group *group)
 {
 	int ret;
 
+	printk("amd iommu v2 reached: line %d, function %s\n", __LINE__, __FUNCTION__);
 	mutex_lock(&group->mutex);
 	ret = __iommu_attach_group(domain, group);
 	mutex_unlock(&group->mutex);
 
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(iommu_attach_group);

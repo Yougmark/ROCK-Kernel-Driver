@@ -2181,6 +2181,7 @@ static int __attach_device(struct iommu_dev_data *dev_data,
 	spin_lock(&domain->lock);
 
 	ret = -EBUSY;
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 	if (dev_data->domain != NULL)
 		goto out_unlock;
 
@@ -2188,6 +2189,7 @@ static int __attach_device(struct iommu_dev_data *dev_data,
 	do_attach(dev_data, domain);
 
 	ret = 0;
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 
 out_unlock:
 
@@ -2297,18 +2299,24 @@ static int attach_device(struct device *dev,
 	int ret;
 
 	dev_data = get_dev_data(dev);
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 
 	if (!dev_is_pci(dev))
 		goto skip_ats_check;
 
 	pdev = to_pci_dev(dev);
 	if (domain->flags & PD_IOMMUV2_MASK) {
+		printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
+		printk("dev_data->iommu_v2: %d\n", dev_data->iommu_v2);
 		if (!dev_data->passthrough)
 			return -EINVAL;
 
+		printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 		if (dev_data->iommu_v2) {
+			printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 			if (pdev_iommuv2_enable(pdev) != 0)
 				return -EINVAL;
+			printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 
 			dev_data->ats.enabled = true;
 			dev_data->ats.qdep    = pci_ats_queue_depth(pdev);
@@ -2316,9 +2324,11 @@ static int attach_device(struct device *dev,
 		}
 	} else if (amd_iommu_iotlb_sup &&
 		   pci_enable_ats(pdev, PAGE_SHIFT) == 0) {
+		printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 		dev_data->ats.enabled = true;
 		dev_data->ats.qdep    = pci_ats_queue_depth(pdev);
 	}
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 
 skip_ats_check:
 	write_lock_irqsave(&amd_iommu_devtable_lock, flags);
@@ -3198,30 +3208,37 @@ static int amd_iommu_attach_device(struct iommu_domain *dom,
 	struct amd_iommu *iommu;
 	int ret;
 
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 	if (!check_device(dev))
 		return -EINVAL;
 
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 	dev_data = dev->archdata.iommu;
 
 	iommu = amd_iommu_rlookup_table[dev_data->devid];
 	if (!iommu)
 		return -EINVAL;
 
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 	if (dev_data->domain)
 		detach_device(dev);
 
 	ret = attach_device(dev, domain);
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 
 #ifdef CONFIG_IRQ_REMAP
 	if (AMD_IOMMU_GUEST_IR_VAPIC(amd_iommu_guest_ir)) {
+		printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 		if (dom->type == IOMMU_DOMAIN_UNMANAGED)
 			dev_data->use_vapic = 1;
 		else
 			dev_data->use_vapic = 0;
 	}
 #endif
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 
 	iommu_completion_wait(iommu);
+	printk("amd iommu v2 reached: line %d, function %s, ret %d\n", __LINE__, __FUNCTION__, ret);
 
 	return ret;
 }
